@@ -13,8 +13,19 @@ const server_addr: []const u8 = "0.0.0.0";
 const server_port: u16 = 3131;
 
 fn serve(server: *http.Server, allocator: mem.Allocator) !void {
-    _ = allocator;
-    _ = server;
+    outer: while (true) {
+        var response = try server.accept(.{ .allocator = allocator });
+        defer response.deinit();
+
+        while (response.reset() != .closing) {
+            response.wait() catch |err| switch (err) {
+                error.HttpHeadersInvalid => continue :outer,
+                error.EndOfStream => continue,
+                else => return err,
+            };
+            try requestHandler(response, allocator);
+        }
+    }
 }
 
 fn requestHandler(response: *http.Server.Response, allocator: mem.Allocator) !void {
