@@ -1,24 +1,50 @@
 const std = @import("std");
+const GeneralPurposeAllocator = std.heap.GeneralPurposeAllocator;
+const ArrayList = std.ArrayList;
+const http = std.http;
+const net = std.net;
+const mem = std.mem;
+const debug = std.debug;
+const json = std.json;
+const log = std.log.scoped(.server);
+const UserModel = @import("struct/user.zig").UserModel;
 
-pub fn main() !void {
-    // Prints to stderr (it's a shortcut based on `std.io.getStdErr()`)
-    std.debug.print("All your {s} are belong to us.\n", .{"codebase"});
+const server_addr: []const u8 = "0.0.0.0";
+const server_port: u16 = 3131;
 
-    // stdout is for the actual output of your application, for example if you
-    // are implementing gzip, then only the compressed bytes should be sent to
-    // stdout, not any debugging messages.
-    const stdout_file = std.io.getStdOut().writer();
-    var bw = std.io.bufferedWriter(stdout_file);
-    const stdout = bw.writer();
-
-    try stdout.print("Run `zig build test` to run the tests.\n", .{});
-
-    try bw.flush(); // don't forget to flush!
+fn serve(server: *http.Server, allocator: mem.Allocator) !void {
+    _ = allocator;
+    _ = server;
 }
 
-test "simple test" {
-    var list = std.ArrayList(i32).init(std.testing.allocator);
-    defer list.deinit(); // try commenting this out and see if zig detects the memory leak!
-    try list.append(42);
-    try std.testing.expectEqual(@as(i32, 42), list.pop());
+fn requestHandler(response: *http.Server.Response, allocator: mem.Allocator) !void {
+    log.info("{s}, {s}, {s}", .{ @tagName(response.request.method), @tagName(response.request.version), response.request.target });
+
+    const user = UserModel{ .firstname = "Lahatra Anjara", .lastaname = "RAVELONARIVO", .username = "lahatra3", .uuid = 12354 };
+
+    var userStr = ArrayList(u8).init(allocator);
+    defer userStr.deinit();
+    try json.stringify(user, .{}, userStr.writer());
+
+    if (response.request.headers.contains("connection")) {
+        try response.headers.append("connection", "keep-alive");
+    }
+    response.transfer_encoding = .chunked;
+
+    if (mem.eql(u8, response.request.target, "/")) {
+        try response.headers.append("content-type", "application/json");
+        try response.do();
+
+        if (response.request.method != .HEAD) {
+            try response.writeAll(userStr.items);
+            try response.finish();
+        }
+    } else {
+        response.status = .not_found;
+        try response.do();
+        try response.writeAll("404, not found");
+        try response.finish();
+    }
 }
+
+pub fn main() !void {}
